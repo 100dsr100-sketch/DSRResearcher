@@ -61,6 +61,8 @@ const ABBR = /\b(e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr|St|Jr|Sr|No|approx|c|ca|Inc|Ltd|C
    Gaelic: Loch Nis [l̪ˠɔx ˈniʃ])" - awkward to read and to hear. Tidy them away. */
 function tidy(t) {
   return t.replace(/\s*\[[^\]]*[ˈˌːɔəɪʊʃʒθðŋæɑɛɒʌɜɐɾɫ̪ˠ][^\]]*\]/g, "")   // IPA in [ ]
+    .replace(/\(\s*[A-Z][A-Za-zəɜɪʊæɒʌ]*(?:-[A-Za-zəɜɪʊæɒʌ]+)+\s*[;,]\s*/g, "(")    // respellings: "( UR-kərt; "
+    .replace(/\(\s*[A-Z][A-Za-zəɜɪʊæɒʌ]*(?:-[A-Za-zəɜɪʊæɒʌ]+)+\s*\)/g, "")
     .replace(/\(\s*[;,]\s*/g, "(").replace(/\s*\(\s*\)/g, "")
     .replace(/\(\s*(listen|pronunciation)\s*\)/gi, "").replace(/\s{2,}/g, " ").replace(/\s+([,.;:])/g, "$1");
 }
