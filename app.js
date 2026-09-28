@@ -163,6 +163,33 @@ async function research(topic, minutes, onStatus) {
 }
 
 /* ======================= read aloud ======================= */
+/* 1b: years spoken the way people say them (the voices read "1980" as "one nine eight zero" or "one
+   thousand nine hundred and eighty"). Only the spoken text changes, not the document. */
+const ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+  "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+const two = n => n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? "-" + ONES[n % 10] : "");
+const pluralise = w => w.replace(/y$/, "ie") + "s";            // eighty -> eighties, hundred -> hundreds
+function sayYear(y, plural = false) {
+  const hi = Math.floor(y / 100), lo = y % 100;
+  let out;
+  if (y >= 2000 && y <= 2009) out = y === 2000 ? "two thousand" : "two thousand and " + ONES[lo];
+  else if (lo === 0) out = two(hi) + " hundred";               // 1900 -> nineteen hundred
+  else if (lo < 10) out = two(hi) + " oh " + ONES[lo];         // 1905 -> nineteen oh five
+  else out = two(hi) + " " + two(lo);                          // 1980 -> nineteen eighty, 2019 -> twenty nineteen
+  if (plural) { const w = out.split(" "); w[w.length - 1] = pluralise(w[w.length - 1]); out = w.join(" "); }
+  return out;
+}
+function speakable(t) {
+  return t
+    // ranges first: 1914–1918 / 1914-18 -> "... to ..."
+    .replace(/\b(1[0-9]\d\d|20\d\d)\s*[–—-]\s*(1[0-9]\d\d|20\d\d|\d\d)\b/g, (m, a, b) => {
+      const end = b.length === 2 ? Math.floor(+a / 100) * 100 + +b : +b;
+      return sayYear(+a) + " to " + sayYear(end);
+    })
+    .replace(/\b(1[0-9]\d0|20\d0)s\b/g, (m, y) => sayYear(+y, true))                            // 1980s -> nineteen eighties
+    .replace(/(?<![\d,.£$€])\b(1[0-9]\d\d|20\d\d)\b(?![,.]\d|\s*%)/g, (m, y) => sayYear(+y));   // plain years
+}
 const tts = {
   synth: window.speechSynthesis, voices: [], queue: [], i: 0, playing: false, curEl: null,
   load() {
@@ -199,7 +226,7 @@ const tts = {
     if (this.i >= this.queue.length) { this.stop(); toast("Finished reading"); return; }
     const item = this.queue[this.i];
     this.mark(item.el);
-    const u = new SpeechSynthesisUtterance(item.t);
+    const u = new SpeechSynthesisUtterance(speakable(item.t));
     const v = this.voice(); if (v) { u.voice = v; u.lang = v.lang; }
     u.rate = +$("#pRate").value || 1;
     u.onend = () => { if (!this.playing) return; this.i++; this.speakNext(); };
