@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DSR Researcher">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>DSR Researcher</title>
+<style>
+  :root{
+    --gold:#FFD700; --gold-deep:#D4AF42; --line:#3a2f10; --bg:#000; --panel:#111; --field:#161616;
+    --text:#eee; --dim:#aaa; --bad:#ff5b5b; --paper:#fff; --ink:#1b1b1b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; background:var(--gold); font-family:"Segoe UI",system-ui,Roboto,sans-serif; color:var(--text)}
+  #app{background:var(--bg); min-height:calc(100vh - 10px); margin:5px; border:2px solid var(--gold-deep); border-radius:10px; display:flex; flex-direction:column}
+  .banner{display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--line); position:sticky; top:0; background:#000; z-index:50; border-radius:10px 10px 0 0}
+  .banner img{width:30px; height:30px}
+  .banner .t1{color:var(--gold); font-weight:700; font-size:16px; line-height:1.1}
+  .banner .t2{color:var(--gold-deep); font-size:11px}
+  .banner .grow{flex:1}
+  .ver{color:var(--gold); font-size:12px; font-weight:700}
+  main{padding:12px; flex:1}
+  h2{color:var(--gold); font-size:18px; margin:4px 0 10px}
+  h3{color:var(--gold-deep); font-size:14px; margin:14px 0 6px}
+  label{display:block; color:var(--gold-deep); font-size:12px; margin:10px 0 4px}
+  input,select{width:100%; background:var(--field); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:9px; font-size:15px; font-family:inherit}
+  input[type=range]{padding:0; accent-color:var(--gold)}
+  button{background:#000; color:var(--gold); border:1px solid var(--gold-deep); border-radius:8px; padding:9px 12px; font-size:14px; font-weight:600; cursor:pointer}
+  button.pri{background:var(--gold); color:#000}
+  button.sm{padding:5px 9px; font-size:12px}
+  button.danger{color:var(--bad); border-color:var(--bad)}
+  button:disabled{opacity:.4}
+  .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  .row > .grow{flex:1; min-width:120px}
+  .card{background:var(--panel); border:1px solid var(--gold-deep); border-radius:10px; padding:12px; margin-bottom:10px}
+  .lens{display:flex; gap:6px; flex-wrap:wrap}
+  .lens button{min-width:48px}
+  .lens button.on{background:var(--gold); color:#000}
+  .hint{color:var(--dim); font-size:12px; margin-top:6px}
+  .status{color:var(--gold-deep); font-size:13px; min-height:18px; margin-top:8px}
+  /* the summary: editable, paper-like */
+  #doc{background:var(--paper); color:var(--ink); border-radius:8px; padding:14px 16px; font-size:16px; line-height:1.55; outline:none; min-height:160px}
+  #doc h1{font-size:20px; margin:0 0 4px}
+  #doc h2{font-size:16px; color:#6b5412; margin:14px 0 4px}
+  #doc p{margin:0 0 8px}
+  #doc .meta{font-size:12px; color:#777; margin-bottom:10px}
+  #doc .src{font-size:12px; color:#555}
+  #doc .src a{color:#6b5412}
+  #doc .speaking{background:#fff2a8; border-radius:3px; box-shadow:0 0 0 2px #fff2a8}
+  .player{position:sticky; bottom:0; background:#000; border-top:1px solid var(--gold-deep); padding:8px 12px; display:none; z-index:40}
+  .player .row{gap:6px}
+  .saved{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #222}
+  .saved .nm{flex:1; min-width:0}
+  .saved .nm b{color:var(--gold); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .saved .nm span{color:var(--dim); font-size:12px}
+  .toast{position:fixed; left:50%; bottom:80px; transform:translateX(-50%); background:#000; color:var(--gold); border:1px solid var(--gold); padding:10px 16px; border-radius:20px; z-index:99; display:none; max-width:90%; text-align:center}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="banner">
+    <img src="icon.svg" alt="">
+    <div class="grow"><div class="t1">DSR Systems</div><div class="t2">DSR Researcher</div></div>
+    <div class="ver">Version 1a</div>
+  </div>
+  <main id="main"></main>
+  <div class="player" id="player">
+    <div class="row">
+      <button class="pri" id="pPlay">▶ Read aloud</button>
+      <button id="pStop">⏹</button>
+      <div class="grow"><select id="pVoice" aria-label="Voice"></select></div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span class="hint" style="margin:0">Speed</span>
+      <div class="grow"><input type="range" id="pRate" min="0.6" max="1.6" step="0.05" value="1"></div>
+      <span class="hint" id="pRateLbl" style="margin:0;min-width:36px">1.0×</span>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="app.js?v=1a"></script>
+</body>
+</html>
