@@ -244,7 +244,23 @@ const tts = {
   pause() { this.playing = false; this.synth?.cancel(); ui(); },
   stop() { this.playing = false; this.synth?.cancel(); this.i = 0; this.queue = []; this.mark(null); ui(); },
 };
-function ui() { const b = $("#pPlay"); if (b) b.textContent = tts.playing ? "⏸ Pause" : (tts.i > 0 && tts.queue.length ? "▶ Resume" : "▶ Read aloud"); }
+/* 1d: "Keep screen on" - when the phone's screen turns off, Android suspends the page and the reading
+   stalls. A screen wake lock stops the screen sleeping while reading aloud (ticked by default). The
+   browser drops the lock whenever the page is hidden, so it's asked for again on return. */
+const awake = {
+  lock: null,
+  wanted() { return tts.playing && $("#pAwake")?.checked; },
+  async sync() {
+    if (this.wanted()) {
+      if (this.lock || !("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+      try { this.lock = await navigator.wakeLock.request("screen"); this.lock.addEventListener("release", () => { this.lock = null; }); }
+      catch { this.lock = null; }
+      if (!this.wanted()) this.sync();                               // stopped while the request was in flight
+    } else if (this.lock) { const l = this.lock; this.lock = null; l.release().catch(() => {}); }
+  },
+};
+document.addEventListener("visibilitychange", () => awake.sync());
+function ui() { awake.sync(); const b = $("#pPlay"); if (b) b.textContent = tts.playing ? "⏸ Pause" : (tts.i > 0 && tts.queue.length ? "▶ Resume" : "▶ Read aloud"); }
 
 /* ======================= views ======================= */
 function home() {
@@ -325,6 +341,12 @@ $("#pPlay").onclick = () => tts.playing ? tts.pause() : tts.play();
 $("#pStop").onclick = () => tts.stop();
 $("#pVoice").onchange = e => { pref("voice", e.target.value); if (tts.playing) { tts.synth.cancel(); tts.speakNext(); } };
 $("#pRate").oninput = e => { $("#pRateLbl").textContent = (+e.target.value).toFixed(1) + "×"; pref("rate", e.target.value); };
+$("#pAwake").checked = pref("awake") !== "0";
+$("#pAwake").onchange = e => {
+  pref("awake", e.target.checked ? "1" : "0");
+  if (e.target.checked && !("wakeLock" in navigator)) toast("This browser can't keep the screen on – turn up the screen timeout in the phone's settings instead", 4500);
+  awake.sync();
+};
 { const r = pref("rate"); if (r) { $("#pRate").value = r; $("#pRateLbl").textContent = (+r).toFixed(1) + "×"; } }
 window.addEventListener("pagehide", () => tts.synth?.cancel());
 

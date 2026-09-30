@@ -55,6 +55,8 @@
   #doc .speaking{background:#fff2a8; border-radius:3px; box-shadow:0 0 0 2px #fff2a8}
   .player{position:sticky; bottom:0; background:#000; border-top:1px solid var(--gold-deep); padding:8px 12px; display:none; z-index:40}
   .player .row{gap:6px}
+  .keepOn{display:flex; align-items:center; gap:8px; margin:8px 0 0; font-size:13px; color:var(--gold-deep)}
+  .keepOn input{width:18px; height:18px; margin:0; accent-color:var(--gold)}
   .saved{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #222}
   .saved .nm{flex:1; min-width:0}
   .saved .nm b{color:var(--gold); display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -67,7 +69,7 @@
   <div class="banner">
     <img src="icon.svg" alt="">
     <div class="grow"><div class="t1">DSR Systems</div><div class="t2">DSR Researcher</div></div>
-    <div class="ver">Version 1c</div>
+    <div class="ver">Version 1d</div>
   </div>
   <main id="main"></main>
   <div class="player" id="player">
@@ -81,9 +83,10 @@
       <div class="grow"><input type="range" id="pRate" min="0.6" max="1.6" step="0.05" value="1"></div>
       <span class="hint" id="pRateLbl" style="margin:0;min-width:36px">1.0×</span>
     </div>
+    <label class="keepOn"><input type="checkbox" id="pAwake"> Keep screen on while reading</label>
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="app.js?v=1c"></script>
+<script src="app.js?v=1d"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
 /* DSR Researcher - network-first app shell (always revalidated, so a new version shows on the
    first reopen), offline fallback from the cache. Wikipedia requests always go to the network.
    Only ever deletes its OWN old caches: every DSR app shares the github.io origin's cache storage. */
-var CACHE = 'dsr-research-v1c';
+var CACHE = 'dsr-research-v1d';
 var OWN = 'dsr-research-';
-var SHELL = ['./', './index.html', './app.js?v=1c', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
+var SHELL = ['./', './index.html', './app.js?v=1d', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
