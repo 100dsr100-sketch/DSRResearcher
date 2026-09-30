@@ -249,7 +249,7 @@ const tts = {
    browser drops the lock whenever the page is hidden, so it's asked for again on return. */
 const awake = {
   lock: null,
-  wanted() { return tts.playing && $("#pAwake")?.checked; },
+  wanted() { return (tts.playing || MP3.busy) && $("#pAwake")?.checked; },   // 1e: also while making an MP3
   async sync() {
     if (this.wanted()) {
       if (this.lock || !("wakeLock" in navigator) || document.visibilityState !== "visible") return;
@@ -264,7 +264,7 @@ function ui() { awake.sync(); const b = $("#pPlay"); if (b) b.textContent = tts.
 
 /* ======================= views ======================= */
 function home() {
-  tts.stop(); $("#player").style.display = "none";
+  tts.stop(); MP3.cancelled = true; $("#player").style.display = "none";
   const last = +(pref("minutes") || 5);
   const items = store.all();
   main.innerHTML = `
@@ -309,7 +309,10 @@ function openDoc(item) {
   tts.stop();
   main.innerHTML = `
     <div class="row" style="margin-bottom:8px"><button class="sm" id="back">← New research</button><div class="grow"></div>
-      <button class="sm" id="export">Export .txt</button>${item.id ? `<button class="sm danger" id="del">Delete</button>` : ""}<button class="sm pri" id="save">${item.id ? "Saved ✓" : "Save"}</button></div>
+      <button class="sm" id="export">Export .txt</button><button class="sm" id="exportMp3">Export .mp3</button>${item.id ? `<button class="sm danger" id="del">Delete</button>` : ""}<button class="sm pri" id="save">${item.id ? "Saved ✓" : "Save"}</button></div>
+    <div class="card" id="mp3Box" style="display:none"><div class="status" id="mp3Status" style="margin:0"></div>
+      <div class="bar"><div id="mp3Bar"></div></div>
+      <div class="row"><span class="hint grow" style="margin:0">Keep the app open – it pauses if the screen turns off.</span><button class="sm danger" id="mp3Cancel">Cancel</button></div></div>
     <label>Name</label><input id="name" value="${esc(item.name)}">
     <label>Summary – tap to edit</label>
     <div id="doc" contenteditable="true">${item.html}</div>
@@ -332,6 +335,20 @@ function openDoc(item) {
   $("#export").onclick = () => {
     const txt = [...$("#doc").querySelectorAll("h1,h2,p,div.meta")].map(e => e.tagName === "H1" ? e.textContent.toUpperCase() : e.tagName === "H2" ? "\n" + e.textContent : e.textContent).join("\n\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([txt], { type: "text/plain" })); a.download = ($("#name").value || "research").replace(/[\\/:*?"<>|]+/g, "_") + ".txt"; a.click();
+  };
+  $("#exportMp3").onclick = async () => {
+    if (MP3.busy) return;
+    if (!(await voiceCached()) && !confirm("The MP3 is made with a built-in voice (British female), which needs a one-time download of about 90 MB – best on Wi-Fi. After that it works offline.\n\nDownload it now?")) return;
+    tts.stop();
+    const box = $("#mp3Box"), btn = $("#exportMp3"); box.style.display = "block"; btn.disabled = true;
+    const status = (m, f) => { if (!$("#mp3Box")) return; $("#mp3Status").textContent = m; $("#mp3Bar").style.width = Math.round((f || 0) * 100) + "%"; };
+    $("#mp3Cancel").onclick = () => { MP3.cancelled = true; status("Cancelling…"); };
+    try {
+      const secs = await exportMp3($("#name").value || "research", +$("#pRate").value || 1, status);
+      box.style.display = "none"; toast(`MP3 saved – ${Math.floor(secs / 60)} min ${secs % 60} s`, 4000);
+    } catch (e) {
+      if (e.message === "cancelled") box.style.display = "none"; else status("Couldn't make the MP3: " + e.message);
+    } finally { btn.disabled = false; }
   };
   const del = $("#del"); if (del) del.onclick = () => { if (confirm("Delete this saved research?")) { store.del(item.id); home(); } };
 }

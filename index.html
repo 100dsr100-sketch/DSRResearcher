@@ -55,6 +55,8 @@
   #doc .speaking{background:#fff2a8; border-radius:3px; box-shadow:0 0 0 2px #fff2a8}
   .player{position:sticky; bottom:0; background:#000; border-top:1px solid var(--gold-deep); padding:8px 12px; display:none; z-index:40}
   .player .row{gap:6px}
+  .bar{height:6px; background:#222; border-radius:3px; margin:8px 0; overflow:hidden}
+  .bar div{height:100%; width:0; background:var(--gold); transition:width .3s}
   .keepOn{display:flex; align-items:center; gap:8px; margin:8px 0 0; font-size:13px; color:var(--gold-deep)}
   .keepOn input{width:18px; height:18px; margin:0; accent-color:var(--gold)}
   .saved{display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #222}
@@ -69,7 +71,7 @@
   <div class="banner">
     <img src="icon.svg" alt="">
     <div class="grow"><div class="t1">DSR Systems</div><div class="t2">DSR Researcher</div></div>
-    <div class="ver">Version 1d</div>
+    <div class="ver">Version 1e</div>
   </div>
   <main id="main"></main>
   <div class="player" id="player">
@@ -87,6 +89,7 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
-<script src="app.js?v=1d"></script>
+<script src="mp3.js?v=1e"></script>
+<script src="app.js?v=1e"></script>
 </body>
 </html>
