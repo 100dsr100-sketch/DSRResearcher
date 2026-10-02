@@ -29,8 +29,135 @@ async function wiki(params) {
   return r.json();
 }
 async function searchTitles(q, n = 8) {
-  const j = await wiki({ action: "query", list: "search", srsearch: q, srlimit: n, srprop: "" });
-  return (j.query?.search || []).map(x => x.title);
+  const j = await wiki({ action: "query", list: "search", srsearch: q, srlimit: n, srprop: "snippet", srinfo: "suggestion" });
+  const hits = (j.query?.search || []).map(x => ({ title: x.title, snip: x.snippet.replace(/<[^>]+>/g, "") }));
+  hits.suggestion = j.query?.searchinfo?.suggestion || "";   // Wikipedia's spelling correction
+  return hits;
+}
+
+/* ======================= 1f: finding the RIGHT articles =======================
+   1a-1e read the first few titles of one search, so "vaults underground Edinburgh" gave Seattle
+   Underground and the Velvet Underground. Now (the DSR Travel Journal's Info method, taken further):
+   - search as typed + Wikipedia's spelling suggestion + the main words in pairs ("vaults Edinburgh")
+     + per-word spelling fixes, all at once;
+   - rank titles by how many of the asked-for words they contain (typos allowed), then how alike the
+     title is spelt to what was typed;
+   - only USE an article whose text really contains the asked-for words. */
+/* how alike two strings are spelt, 0..1 (swapped letters count as one slip) */
+function spellSim(a, b) {
+  const n = x => x.toLowerCase().replace(/\s*\(.*\)$/, "").replace(/[^a-z0-9 ]+/g, "").trim();
+  a = n(a); b = n(b); if (!a || !b) return 0; if (a === b) return 1;
+  const d = []; for (let i = 0; i <= a.length; i++) { d[i] = [i]; }
+  for (let j = 0; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
+  return 1 - d[a.length][b.length] / Math.max(a.length, b.length);
+}
+const stem = w => { w = w.toLowerCase().replace(/[’']s$/, ""); return w.length > 4 && /ies$/.test(w) ? w.slice(0, -3) + "y" : w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w; };
+/* does the word w appear among the (stemmed) words of a text? typos allowed for longer words */
+function hasWord(set, w) {
+  const sw = stem(w); if (set.has(sw)) return true;
+  if (sw.length < 5) return false;
+  const min = sw.length >= 8 ? 0.75 : 0.8;
+  for (const x of set) if (Math.abs(x.length - sw.length) <= 2 && x[0] === sw[0] && spellSim(x, sw) >= min) return true;
+  return false;
+}
+const wordSet = t => new Set(words(t).map(stem));
+const keyWords = q => [...new Set(words(q).filter(w => !STOP.has(w) && w.length > 2))];
+
+const DATAMUSE = "https://api.datamuse.com/words?max=5&md=f&sp=";
+const dmFreq = x => +((x.tags || []).find(t => t.startsWith("f:")) || "f:0").slice(2);
+async function fixWord(w, seen, sugg) {
+  if (seen.has(stem(w))) return w;
+  const cands = new Map();   // word -> score
+  const add = (x, bonus) => { x = x.toLowerCase(); if (x === w || /\s/.test(x)) return; const sim = spellSim(x, w); if (sim < 0.6) return;
+    cands.set(x, Math.max(cands.get(x) || 0, sim + bonus + (seen.has(stem(x)) ? 1 : 0))); };
+  sugg.forEach(x => add(x, 0.2));
+  try {
+    const near = await (await fetch(DATAMUSE + encodeURIComponent(w))).json();
+    if (near.some(x => x.word === w && dmFreq(x) > 0.5)) return w;       // it's a real, used word after all
+    near.forEach((x, i) => add(x.word, 0.15 - i * 0.03 + Math.min(dmFreq(x), 50) / 500));
+    if (!cands.size && w.length >= 4) {      // swapped letters ("vualts"): try each swap as an exact spelling
+      const swaps = []; for (let i = 0; i < w.length - 1; i++) swaps.push(w.slice(0, i) + w[i + 1] + w[i] + w.slice(i + 2));
+      const got = await Promise.all(swaps.map(s2 => fetch(DATAMUSE.replace("max=5", "max=1") + s2).then(r => r.json()).catch(() => [])));
+      got.forEach((g, i) => { if (g[0] && g[0].word === swaps[i] && dmFreq(g[0]) > 0.05) add(swaps[i], 0.3); });
+    }
+  } catch {}
+  return [...cands.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || w;
+}
+
+async function findArticles(topic, onStatus) {
+  const typed = keyWords(topic);
+  onStatus("Searching…");
+  const first = await searchTitles(topic, 10);
+  // per-word spelling fixes: a word the results themselves use is taken as spelt right; otherwise the
+  // closest of Wikipedia's suggestion and the free Datamuse dictionary (which also gets swapped letters
+  // via its exact-spelling check) - "edinbrugh" -> edinburgh, "vualts" -> vaults, "hasings" -> hastings
+  const sugg = first.suggestion ? keyWords(first.suggestion) : [];
+  const seen = wordSet(first.map(h => h.title + " " + h.snip).join(" "));
+  const fixed = await Promise.all(typed.map(w => fixWord(w, seen, sugg)));
+  const alts = typed.map((w, i) => [...new Set([w, fixed[i]])]);   // each word: as typed and corrected
+  const queries = new Set();
+  if (first.suggestion) queries.add(first.suggestion);
+  if (fixed.join(" ") !== typed.join(" ")) queries.add(fixed.join(" "));
+  if (typed.length >= 3 && typed.length <= 5)        // the main words in pairs: "vaults edinburgh"
+    for (let i = 0; i < typed.length; i++) for (let j = i + 1; j < typed.length; j++) queries.add(fixed[i] + " " + fixed[j]);
+  queries.delete(topic);
+  onStatus("Searching (" + (queries.size + 1) + " ways)…");
+  const lists = [first, ...await Promise.all([...queries].slice(0, 9).map(q => searchTitles(q, 8).catch(() => [])))];
+
+  // rank every title found
+  const cand = new Map();
+  lists.forEach((hits, li) => hits.forEach((h, rank) => {
+    let c = cand.get(h.title);
+    if (!c) { c = { title: h.title, snip: h.snip, hits: 0, best: 99 }; cand.set(h.title, c); }
+    c.hits++; c.best = Math.min(c.best, rank + (li ? 2 : 0));
+  }));
+  const cover = (set) => alts.filter(a => a.some(w => hasWord(set, w))).length / Math.max(1, alts.length);
+  for (const c of cand.values()) {
+    const tset = wordSet(c.title), sset = wordSet(c.title + " " + c.snip);
+    c.tc = cover(tset); c.sc = cover(sset);
+    const extra = keyWords(c.title.replace(/\(.*\)/, "")).filter(w => !alts.some(a => a.some(x => stem(x) === stem(w) || spellSim(x, w) >= 0.75))).length;
+    c.score = c.tc * 6 + c.sc * 1.5 + Math.min(c.hits, 4) * 0.25 - c.best * 0.15 + (c.best === 0 ? 1.5 : 0) - extra * 0.8
+      + Math.max(spellSim(c.title, topic), spellSim(c.title, fixed.join(" "))) * 2
+      - (/^(list of|lists of)\b/i.test(c.title) ? 2 : 0) - (/\(disambiguation\)/i.test(c.title) ? 5 : 0);
+  }
+  const ranked = [...cand.values()].sort((a, b) => b.score - a.score);
+  const need = alts.length <= 3 ? alts.length : Math.ceil(alts.length * 0.75);
+  return { ranked, alts, need, cover, fixed };
+}
+
+/* fetch candidates (a few at a time, best first) and keep those whose text really has the words */
+async function relevantArticles(topic, minutes, target, onStatus) {
+  const { ranked, alts, need, cover, fixed } = await findArticles(topic, onStatus);
+  if (!ranked.length) throw new Error("Nothing found on Wikipedia for “" + topic + "”");
+  const max = minutes >= 10 ? 6 : 3, arts = [], weak = []; let have = 0;
+  for (let i = 0; i < Math.min(ranked.length, 14) && arts.length < max; i += 4) {
+    const batch = ranked.slice(i, i + 4);
+    onStatus(`Reading “${batch[0].title}”…`);
+    const got = await Promise.all(batch.map(c => article(c.title).catch(() => null)));
+    for (const a of got) {
+      if (!a || /may refer to:?$/m.test(a.text.split("\n").slice(0, 3).join(" "))) continue;   // disambiguation page
+      if (arts.some(x => x.title === a.title)) continue;
+      const set = wordSet(a.title + " " + a.text), n = Math.round(cover(set) * alts.length);
+      // the article must be ABOUT it: most of the words in its title + opening paragraph too
+      const lead = wordSet(a.title + " " + a.text.split("\n").filter(x => x.trim() && !/^=/.test(x)).slice(0, 2).join(" "));
+      const nLead = Math.round(cover(lead) * alts.length);
+      if (n >= (need >= 3 ? need - 1 : need) && nLead >= Math.max(1, need - 1)) { if (arts.length < max && !(arts.length && have >= target * 1.6)) { arts.push(a); have += wc(a.text); } }
+      else weak.push([n, a]);
+    }
+    if (arts.length && have >= target * 1.6) break;
+  }
+  let partial = false;
+  if (!arts.length && weak.length) {   // nothing has every word: the closest one, said so
+    weak.sort((a, b) => b[0] - a[0]); arts.push(weak[0][1]); partial = true;
+  }
+  if (!arts.length) throw new Error("Couldn't find an article about “" + topic + "”");
+  // what was really searched, in the user's own wording with the spelling fixed ("battle of hastings")
+  let corrected = topic; keyWords(topic).forEach((w, i) => { if (fixed[i] !== w) corrected = corrected.replace(new RegExp("\\b" + w + "\\b", "i"), fixed[i]); });
+  return { arts, partial, corrected: corrected !== topic ? corrected : "" };
 }
 async function article(title) {
   const j = await wiki({ action: "query", prop: "extracts|info", explaintext: 1, exsectionformat: "wiki", inprop: "url", redirects: 1, titles: title });
@@ -142,23 +269,13 @@ function summarise(arts, topic, targetWords) {
 
 async function research(topic, minutes, onStatus) {
   const target = Math.max(60, Math.round(minutes * WPM));
-  onStatus("Searching…");
-  let titles = await searchTitles(topic, 10);
-  if (!titles.length) throw new Error("Nothing found on Wikipedia for “" + topic + "”");
-  const arts = []; let have = 0;
-  for (const t of titles) {
-    if (arts.length && have >= target * 1.6) break;                 // enough material to choose from
-    if (arts.length >= (minutes >= 10 ? 6 : 3)) break;
-    onStatus(`Reading “${t}”…`);
-    const a = await article(t).catch(() => null);
-    if (!a || /may refer to:?$/m.test(a.text.split("\n").slice(0, 3).join(" "))) continue;   // disambiguation page
-    arts.push(a); have += wc(a.text);
-  }
-  if (!arts.length) throw new Error("Couldn't read an article for “" + topic + "”");
+  const { arts, partial, corrected } = await relevantArticles(topic, minutes, target, onStatus);
   onStatus("Summarising…");
-  const s = summarise(arts, topic, target);
+  const s = summarise(arts, corrected ? topic + " " + corrected : topic, target);
   const mins = Math.max(1, Math.round(s.words / WPM));
-  const note = s.words < target * 0.8 ? ` (that's everything the sources had – you asked for ${minutes} min)` : "";
+  let note = s.words < target * 0.8 ? ` (that's everything the sources had – you asked for ${minutes} min)` : "";
+  if (corrected) note += ` · searched as “${corrected}”`;
+  if (partial) note += ` · no article had all your words – this is the closest`;
   const html = `<h1>${esc(arts[0].title)}</h1><div class="meta">About ${mins} minute${mins === 1 ? "" : "s"} · ${s.words.toLocaleString()} words${esc(note)}</div>${s.html}` +
     `<p class="src">Sources: ${arts.map(a => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>`).join(", ")} (Wikipedia, CC BY-SA)</p>`;
   return { title: arts[0].title, html, minutes: mins, words: s.words };
