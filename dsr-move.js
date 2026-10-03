@@ -7,16 +7,17 @@
    ls  = localStorage key prefixes that belong to this app (the old address holds every DSR app's keys)
    idb = IndexedDB database names that belong to this app
 
-   Old address: shows "this app has moved" instead of the app, with "Move my data" - opens the new address and hands the
-   data over window-to-window (postMessage; an iframe can't be used, its storage would be partitioned), or saves a file.
-   New address, opened as #dsr-move-in: receives it (or takes the file), stores it, then starts the app normally. */
+   Old address: shows an "OLD COPY - has moved" page instead of the app. "Move my data" uploads this app's data to
+   dsr-move-relay (one-time code, 10-minute expiry) and opens the new address as #dsr-move-in=<code>, which collects
+   it, stores it, deletes it from the relay. Or a data file can be saved here and chosen there (#dsr-move-in). */
 (function () {
   "use strict";
   var C = window.DSR_MOVE; if (!C) return;
-  var OLD = /(^|\.)github\.io$/.test(location.hostname), IN = location.hash === "#dsr-move-in";
+  var OLD = /(^|\.)github\.io$/.test(location.hostname), IN = /^#dsr-move-in(=[0-9a-f]{32})?$/.test(location.hash);
   if (!OLD && !IN) return;
   window.stop();                                   // the app itself doesn't start on this page
-  var NEW_ORIGIN = new URL(C.to).origin;
+  var RELAY = "https://dsr-move-relay.100dsr100.workers.dev/p/";
+  async function put(k, body) { var r = await fetch(RELAY + k, { method: "PUT", body: body }); if (!r.ok) throw new Error("relay " + r.status); }
 
   /* ---------- the page ---------- */
   function page(html) {
@@ -112,18 +113,25 @@
       if (n) { $("moveBtns").style.display = ""; $("skip").className = "b g"; $("skip").textContent = "Open the new app without moving anything"; st("Ready to move " + n + " saved item" + (n > 1 ? "s" : "") + "."); }
     })
       .catch(function (e) { st("Couldn't read the data here: " + e.message); });
-    $("go").onclick = function () {
+    /* the hand-over goes through dsr-move-relay (our own Cloudflare Worker): this page uploads the data under a
+       one-time code and opens the new address with it; the new address collects it and deletes it. No pop-up
+       windows (unreliable from an installed app), and nothing left behind (it expires after 10 minutes anyway). */
+    $("go").onclick = async function () {
       if (!data) return;
-      var w = window.open(C.to + "#dsr-move-in", "_blank");
-      if (!w) { st("The new app didn't open - use \"Save my data as a file\" instead."); return; }
-      st("Opening the new app…");
-      var sent = false, timer = setTimeout(function () { if (!sent) st("The new app didn't answer. Use \"Save my data as a file\", then in the new app choose that file."); }, 20000);
-      window.addEventListener("message", function (e) {
-        if (e.origin !== NEW_ORIGIN) return;
-        if (e.data === "dsr-move-ready" && !sent) { sent = true; clearTimeout(timer); w.postMessage({ dsrMove: data }, NEW_ORIGIN); st("Sending…"); }
-        else if (e.data && e.data.dsrMoveDone) st("Moved ✓ " + e.data.dsrMoveDone + " items. Carry on in the new app - install it from there.");
-        else if (e.data && e.data.dsrMoveError) st("The new app couldn't store it: " + e.data.dsrMoveError);
-      });
+      this.disabled = true;
+      try {
+        st("Packing…");
+        var json = JSON.stringify(await toJSON(data)), code = "", b = new Uint8Array(16);
+        crypto.getRandomValues(b); b.forEach(function (x) { code += (x + 256).toString(16).slice(1); });
+        var size = 19 * 1024 * 1024, parts = Math.max(1, Math.ceil(json.length / size));
+        for (var i = 0; i < parts; i++) {
+          st("Sending… " + Math.round(i / parts * 100) + "%");
+          await put(code + "/" + i, json.slice(i * size, (i + 1) * size));
+        }
+        await put(code + "/meta", JSON.stringify({ parts: parts, app: C.name }));
+        st("Sent ✓ - opening the new app…");
+        location.href = C.to + "#dsr-move-in=" + code;
+      } catch (e) { st("Couldn't send it (" + e.message + "). Check you're online, or use \"Save my data as a file\"."); this.disabled = false; }
     };
     $("file").onclick = async function () {
       if (!data) return; st("Making the file…");
@@ -137,20 +145,40 @@
   }
 
   /* ---------- new address: receive ---------- */
-  page('<h1>Bringing your data into ' + esc(C.name) + '</h1><div id="st">Waiting for the old app…</div>' +
+  var CODE = (location.hash.match(/=([0-9a-f]{32})$/) || [])[1];
+  page('<h1>Bringing your data into ' + esc(C.name) + '</h1><div id="st">' + (CODE ? "Collecting your data…" : "Choose the data file you saved from the old app.") + '</div>' +
+    '<div id="after"></div>' +
     '<button class="g" id="pick">Choose a saved data file instead</button><input type="file" id="f" accept=".json,application/json" style="display:none">' +
     '<a class="b g" href="' + esc(location.pathname) + '">Cancel - just open the app</a>');
-  function done(n) { st("Done ✓ " + n + " items moved. Opening the app…"); setTimeout(function () { location.replace(location.pathname); }, 1500); }
-  async function take(d) {
-    try { await importAll(d); var n = count(d); if (window.opener) window.opener.postMessage({ dsrMoveDone: n }, "*"); done(n); }
-    catch (e) { st("Couldn't store it: " + e.message); if (window.opener) window.opener.postMessage({ dsrMoveError: e.message }, "*"); }
+  history.replaceState(null, "", location.pathname + "#dsr-move-in");   // the code is used once
+  function done(n) {
+    st("Done ✓ " + n + " item" + (n === 1 ? "" : "s") + " moved.");
+    $("pick").style.display = "none";
+    $("after").innerHTML = '<p>Now install the app from here if it isn\'t already: Chrome ⋮ › <b>Add to home screen</b> › <b>Install</b>. Then uninstall the old copy (tap <b>Keep Data</b> if asked).</p>' +
+      '<a class="b p" href="' + esc(location.pathname) + '">Open ' + esc(C.name) + '</a>';
   }
-  window.addEventListener("message", function (e) {
-    if (!/(^|\.)github\.io$/.test(new URL(e.origin).hostname) || !e.data || !e.data.dsrMove) return;   // only from the old address
-    st("Storing…"); take(e.data.dsrMove);
-  });
-  if (window.opener) window.opener.postMessage("dsr-move-ready", "*");
-  else st("Opened directly - choose the data file you saved from the old app.");
+  async function take(d) {
+    try { await importAll(d); done(count(d)); } catch (e) { st("Couldn't store it: " + e.message); }
+  }
+  async function getPart(k) {
+    for (var tries = 0; tries < 8; tries++) {           // a just-written part can take a moment to show up
+      var r = await fetch(RELAY + CODE + "/" + k, { cache: "no-store" });
+      if (r.ok) return await r.text();
+      await new Promise(function (res) { setTimeout(res, 1500); });
+    }
+    throw new Error("the data wasn't there (it expires 10 minutes after sending) - send it again from the old app");
+  }
+  if (CODE) (async function () {
+    try {
+      var meta = JSON.parse(await getPart("meta")), json = "";
+      for (var i = 0; i < meta.parts; i++) { st("Collecting your data… " + Math.round(i / meta.parts * 100) + "%"); json += await getPart(i); }
+      st("Storing…");
+      var d = await fromJSON(JSON.parse(json));
+      await importAll(d);
+      fetch(RELAY + CODE, { method: "DELETE" }).catch(function () {});
+      done(count(d));
+    } catch (e) { st("Couldn't bring it over: " + e.message); }
+  })();
   $("pick").onclick = function () { $("f").click(); };
   $("f").onchange = async function () {
     var f = this.files[0]; if (!f) return; st("Reading the file…");
