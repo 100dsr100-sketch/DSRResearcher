@@ -11,8 +11,9 @@
 <link rel="icon" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>DSR Researcher</title>
-<script>/* 1h: the app now has its own address (separate storage + installs); the old shared github.io copy forwards there */
-if (/github\.io$/.test(location.hostname)) location.replace("https://dsr-researcher.pages.dev/" + location.search + location.hash);</script>
+<script>/* the old shared github.io copy shows an "OLD COPY - moved" page (and can hand data over); see dsr-move.js */
+window.DSR_MOVE = { name: "DSR Researcher", to: "https://dsr-researcher.pages.dev/", ls: ["dsrres."], idb: [] };</script>
+<script src="dsr-move.js"></script>
 <style>
   :root{
     --gold:#FFD700; --gold-deep:#D4AF42; --line:#3a2f10; --bg:#000; --panel:#111; --field:#161616;
@@ -73,7 +74,7 @@ if (/github\.io$/.test(location.hostname)) location.replace("https://dsr-researc
   <div class="banner">
     <img src="icon.svg" alt="">
     <div class="grow"><div class="t1">DSR Systems</div><div class="t2">DSR Researcher</div></div>
-    <div class="ver">Version 2a</div>
+    <div class="ver">Version 2b</div>
   </div>
   <main id="main"></main>
   <div class="player" id="player">
